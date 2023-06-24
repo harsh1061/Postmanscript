@@ -1,0 +1,72 @@
+const { v4: uuidv4 } = require('uuid');
+const fs = require('fs');
+const path = require('path');
+
+function generateRequests(collection, parentFolder = '') {
+  const requests = [];
+
+  for (const item of collection.item) {
+    if (item.request) {
+      const { name, method, url, headers, body } = item.request;
+      const params = {
+        headers: {},
+      };
+
+      if (headers) {
+        for (const header of headers) {
+          params.headers[header.key] = header.value;
+        }
+      }
+
+      let requestCode = '';
+
+      if (method.toUpperCase() === 'GET') {
+        requestCode = `
+          // ${name}
+          const res_${uuidv4().replace(/-/g, '')} = http.get("${url.raw}", ${JSON.stringify(params)});
+        `;
+      } else if (method.toUpperCase() === 'POST') {
+        let bodyContent = '';
+
+        if (body && body.mode === 'raw') {
+          bodyContent = JSON.stringify(JSON.parse(body.raw));
+        }
+
+        requestCode = `
+          // ${name}
+          const res_${uuidv4().replace(/-/g, '')} = http.post("${url.raw}", ${bodyContent}, ${JSON.stringify(params)});
+        `;
+      }
+
+      requests.push({ name, requestCode });
+    } else if (item.item) {
+      const folderName = item.name;
+      const folderPath = path.join(parentFolder, folderName);
+      const folderRequests = generateRequests(item, folderPath);
+      requests.push(...folderRequests);
+    }
+  }
+
+  return requests;
+}
+
+const collection = JSON.parse(fs.readFileSync('path/to/postman-collection.json', 'utf8'));
+const requests = generateRequests(collection);
+
+for (const { name, requestCode } of requests) {
+  const folderPath = path.join('path/to/output', name);
+  fs.mkdirSync(folderPath, { recursive: true });
+
+  const k6Script = `
+    import http from "k6/http";
+    import { sleep } from "k6";
+
+    export default function() {
+      ${requestCode}
+      sleep(1);
+    }
+  `;
+
+  const filePath = path.join(folderPath, 'script.js');
+  fs.writeFileSync(filePath, k6Script);
+}
