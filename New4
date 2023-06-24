@@ -1,0 +1,46 @@
+const fs = require('fs');
+
+// Read config.json file
+const config = JSON.parse(fs.readFileSync('config.json', 'utf8'));
+
+// Get collection file name from the config
+const collectionFileName = config.collectionFileName;
+
+// Read the collection file
+const collectionData = JSON.parse(fs.readFileSync(collectionFileName, 'utf8'));
+
+// Iterate over each request in the collection
+collectionData.item.forEach((item, index) => {
+  // Extract request details
+  const requestName = item.name;
+  const requestUrl = item.request.url.raw;
+  const requestMethod = item.request.method;
+  const requestBody = item.request.body ? JSON.stringify(item.request.body) : null;
+
+  // Generate the k6 script
+  const k6Script = `
+    import http from 'k6/http';
+    import { check } from 'k6';
+
+    export default function() {
+      const url = ${JSON.stringify(requestUrl)};
+      const method = ${JSON.stringify(requestMethod)};
+      const headers = ${JSON.stringify(item.request.header)};
+      const body = ${requestBody || 'null'};
+
+      const response = http.request(method, url, { headers, body });
+
+      check(response, {
+        'Status is 200': (r) => r.status === 200
+      });
+    }
+  `;
+
+  // Generate a unique file name for each request
+  const fileName = `k6Script_${index}.js`;
+
+  // Save the k6 script to a file
+  fs.writeFileSync(fileName, k6Script, 'utf8');
+
+  console.log(`Request ${index + 1} converted to k6 script: ${fileName}`);
+});
