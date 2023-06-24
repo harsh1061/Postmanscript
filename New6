@@ -1,0 +1,63 @@
+const fs = require('fs');
+
+// Read config.json file
+const config = JSON.parse(fs.readFileSync('config.json', 'utf8'));
+
+// Get collection file name from the config
+const collectionFileName = config.collectionFileName;
+
+// Read the collection file
+const collectionData = JSON.parse(fs.readFileSync(collectionFileName, 'utf8'));
+
+// Iterate over each request in the collection
+collectionData.item.forEach((item, index) => {
+  // Extract request details
+  const request = item.request;
+  const requestName = item.name;
+  const requestUrl = request.url.raw;
+  const requestMethod = request.method;
+  const requestHeaders = request.header;
+  const requestBody = request.body;
+
+  // Generate a valid filename from the request name
+  const fileName = `${sanitizeFilename(requestName)}.js`;
+
+  // Construct the k6 script
+  let k6Script = `import http from 'k6/http';\n\n`;
+  k6Script += `export default function () {\n`;
+  k6Script += `  const url = ${JSON.stringify(requestUrl)};\n`;
+  k6Script += `  const params = {};\n`;
+
+  // Add request headers
+  if (requestHeaders && requestHeaders.length > 0) {
+    requestHeaders.forEach(header => {
+      const headerName = header.key;
+      const headerValue = header.value;
+      k6Script += `  params.headers = params.headers || {};\n`;
+      k6Script += `  params.headers[${JSON.stringify(headerName)}] = ${JSON.stringify(headerValue)};\n`;
+    });
+  }
+
+  // Add request body for POST requests
+  if (requestMethod === 'POST' && requestBody && requestBody.mode === 'raw') {
+    const requestBodyContent = requestBody.raw;
+    k6Script += `  const body = ${JSON.stringify(requestBodyContent)};\n`;
+    k6Script += `  params.body = body;\n`;
+  }
+
+  // Add the HTTP request
+  k6Script += `\n`;
+  k6Script += `  const response = http.${requestMethod.toLowerCase()}(url, params);\n`;
+  k6Script += `  console.log(response.status);\n`;
+  k6Script += `}\n`;
+
+  // Save k6 script to a file
+  fs.writeFileSync(fileName, k6Script, 'utf8');
+
+  console.log(`Request "${requestName}" converted to k6 script: ${fileName}`);
+});
+
+// Function to sanitize the filename
+function sanitizeFilename(filename) {
+  return filename.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
+}
