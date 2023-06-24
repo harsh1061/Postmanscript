@@ -1,0 +1,132 @@
+const fs = require('fs');
+const path = require('path');
+
+function createRequestFile(request, requestsDirPath) {
+  const { name, method, url, header, body } = request.request;
+
+  // Format request URL
+  const formattedUrl = url.raw;
+
+  // Format headers as separate lines
+  let formattedHeaders = '';
+  if (header && header.length) {
+    formattedHeaders = header
+      .map(({ key, value }) => `    '${key}': '${value}'`)
+      .join(',\n');
+  }
+
+  // Format request body as proper JSON
+  let requestBody = '';
+  if (body && body.raw) {
+    try {
+      const bodyJson = JSON.parse(body.raw);
+      requestBody = JSON.stringify(bodyJson, null, 2);
+    } catch (error) {
+      console.error('Error parsing request body as JSON:', error);
+    }
+  }
+
+  // Generate individual request file content
+  let requestScript = `
+    import http from 'k6/http';
+    import { sleep, check } from 'k6';
+
+    export default function () {
+      const params = ${formattedHeaders ? `{
+${formattedHeaders}
+      }` : ''};
+      const requestBody = ${requestBody ? `{
+${requestBody}
+      }` : ''};
+
+      const response = http.${method.toLowerCase()}('${formattedUrl}', JSON.stringify(requestBody), params);
+      const checkResponse = check(response, {
+        'Response code is 200': (r) => r.status === 200,
+      });
+
+      sleep(1);
+    }
+  `;
+
+  // Save individual request file
+  const requestFileName = `${name.replace(/ /g, '_')}.js`;
+  const requestFilePath = path.join(requestsDirPath, requestFileName);
+  fs.writeFileSync(requestFilePath, requestScript);
+}
+
+function convertPostmanToK6(postmanFilePath) {
+  try {
+    // Read the Postman Collection JSON file
+    const postData = fs.readFileSync(postmanFilePath, 'utf8');
+    const postmanJson = JSON.parse(postData);
+
+    // Extract the requests from the Postman Collection
+    const requests = postmanJson.item;
+
+    // Create a directory to store individual request files
+    const requestsDirPath = path.join(__dirname, 'requests');
+    fs.mkdirSync(requestsDirPath, { recursive: true });
+
+    // Generate individual request files
+    requests.forEach((request) => {
+      createRequestFile(request, requestsDirPath);
+    });
+
+    // Generate suite file content
+    let suiteScript = '';
+
+    if (generateSuiteFile) {
+      suiteScript += `import { options } from './config.js';\n\n`;
+
+      requests.forEach((request) => {
+        const { name } = request.request;
+        const requestFileName = `${name.replace(/ /g, '_')}.js`;
+        suiteScript += `import ${name.replace(/ /g, '_')} from './requests/${requestFileName}';\n`;
+      });
+
+      suiteScript += `\nexport default function () {\n`;
+      requests.forEach((request) => {
+        const { name } = request.request;
+        suiteScript += `  ${name.replace(/ /g, '_')}();\n`;
+      });
+      suiteScript += '}\n';
+    }
+
+    // Save the suite file if enabled
+    if (generateSuiteFile) {
+      const suiteFileName = 'suite.js';
+      const suiteFilePath = path.join(__dirname, suiteFileName);
+      fs.writeFileSync(suiteFilePath, suiteScript);
+      console.log('Suite file saved to:', suiteFilePath);
+    }
+
+    // Generate config file if enabled
+    if (generateConfigFile) {
+      let configScript = `export const options = ${JSON.stringify(config, null, 2)};\n`;
+
+      // Save the config file
+      const configFileName = 'config.js';
+      const configFilePath = path.join(__dirname, configFileName);
+      fs.writeFileSync(configFilePath, configScript);
+      console.log('Config file saved to:', configFilePath);
+    }
+
+    console.log('Conversion successful.');
+    console.log('Individual request files saved in:', requestsDirPath);
+  } catch (error) {
+    console.error('Error converting Postman Collection to k6 script:', error);
+  }
+}
+
+// Read the config.json file
+const configData = fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8');
+const config = JSON.parse(configData);
+
+// Retrieve the path to the Postman Collection JSON file
+const postmanFilePath = config.postmanFile;
+
+// Set the generateSuiteFile and generateConfigFile flags based on config.json
+const generateSuiteFile = config.generateSuiteFile || false;
+const generateConfigFile = config.generateConfigFile || false;
+
+convertPostmanToK6(postmanFilePath);
