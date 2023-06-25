@@ -1,0 +1,62 @@
+If you want to conditionally create the suite file and config file only when their names are specified in the `config.json` file, you can modify the code as follows:
+
+```javascript
+const fs = require('fs');
+const path = require('path');
+
+function convertPostmanToK6(collectionName, generateSuite, generateConfig) {
+  try {
+    // Construct the Postman Collection file path
+    const postmanFilePath = path.join(__dirname, `${collectionName}.json`);
+
+    // Read the Postman Collection JSON file
+    const postData = fs.readFileSync(postmanFilePath, 'utf8');
+    const postmanJson = JSON.parse(postData);
+
+    // Rest of the conversion code...
+
+    // Save the converted files...
+    console.log('Conversion successful.');
+    console.log('Individual request files saved in:', requestsDirPath);
+
+    if (generateSuite) {
+      console.log('Suite file saved to:', suiteFilePath);
+      // Save the suite file
+      // ...
+    }
+
+    if (generateConfig) {
+      console.log('Config file saved to:', configFilePath);
+      // Save the config file
+      // ...
+    }
+  } catch (error) {
+    console.error('Error converting Postman Collection to k6 script:', error);
+  }
+}
+
+// Read the configuration from the config file
+const configFilePath = path.join(__dirname, 'config.json');
+const configData = fs.readFileSync(configFilePath, 'utf8');
+const configJson = JSON.parse(configData);
+const collectionName = configJson.collectionName;
+const generateSuite = configJson.generateSuite || false;
+const generateConfig = configJson.generateConfig || false;
+
+// Call the converter function with the collection name and generate flags
+convertPostmanToK6(collectionName, generateSuite, generateConfig);
+```
+
+In the `config.json` file, you can include the following optional properties:
+
+```json
+{
+  "collectionName": "my_postman_collection",
+  "generateSuite": true,
+  "generateConfig": true
+}
+```
+
+By default, `generateSuite` and `generateConfig` are set to `false` if not provided in the `config.json` file. If you set them to `true`, the suite file and config file will be generated and their respective file paths will be logged. Otherwise, they will be skipped.
+
+Make sure to adjust the code according to your specific requirements and file naming conventions
