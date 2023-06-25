@@ -1,0 +1,132 @@
+const fs = require('fs');
+const path = require('path');
+
+function convertPostmanToK6(postmanFilePath) {
+  try {
+    // Read the Postman Collection JSON file
+    const postData = fs.readFileSync(postmanFilePath, 'utf8');
+    const postmanJson = JSON.parse(postData);
+
+    // Extract the requests from the Postman Collection
+    const requests = postmanJson.item;
+
+    // Create a directory to store individual request files
+    const requestsDirPath = path.join(__dirname, 'requests');
+    fs.mkdirSync(requestsDirPath, { recursive: true });
+
+    // Generate individual request files
+    requests.forEach((request, index) => {
+      const { name, method, url, header, body } = request.request;
+
+      // Format request URL
+      const formattedUrl = url.raw;
+
+      // Format headers as separate lines
+      let formattedHeaders = '';
+      if (header && header.length) {
+        formattedHeaders = header
+          .map(({ key, value }) => `    '${key}': '${value}'`)
+          .join(',\n');
+      }
+
+      // Format request body as proper JSON
+      let requestBody = '';
+      if (body && body.raw) {
+        try {
+          const bodyJson = JSON.parse(body.raw);
+          requestBody = JSON.stringify(bodyJson, null, 2);
+        } catch (error) {
+          console.error('Error parsing request body as JSON:', error);
+        }
+      }
+
+      // Generate individual request file content
+      let requestScript = `
+        import http from 'k6/http';
+        import { sleep, check } from 'k6';
+
+        export default function ${name.replace(/ /g, '_')}_1() {
+          const params = ${formattedHeaders ? `{
+${formattedHeaders}
+          }` : ''};
+          const requestBody = ${requestBody ? `{
+${requestBody}
+          }` : ''};
+
+          const response = http.${method.toLowerCase()}('${formattedUrl}', JSON.stringify(requestBody), params);
+          const checkResponse = check(response, {
+            'Response code is 200': (r) => r.status === 200,
+          });
+
+          sleep(1);
+        }
+      `;
+
+      // Save individual request file
+      const requestFileName = `${name.replace(/ /g, '_')}_1.js`;
+      const requestFilePath = path.join(requestsDirPath, requestFileName);
+      fs.writeFileSync(requestFilePath, requestScript);
+    });
+
+    // Generate suite file content
+    let suiteScript = `
+      import { options } from './config.js';
+    `;
+    requests.forEach((request, index) => {
+      const { name } = request.request;
+      const requestFileName = `${name.replace(/ /g, '_')}_1.js`;
+      suiteScript += `import ${name.replace(/ /g, '_')}_1 from './requests/${requestFileName}';\n`;
+    });
+
+    suiteScript += `
+      export default function () {
+    `;
+    requests.forEach((request, index) => {
+      const { name } = request.request;
+      suiteScript += `    ${name.replace(/ /g, '_')}_1();\n`;
+    });
+    suiteScript += '}\n';
+
+    // Save the suite file
+    const suiteFileName = 'suite.js';
+    const suiteFilePath = path.join(__dirname, suiteFileName);
+    fs.writeFileSync(suiteFilePath, suiteScript);
+
+    // Generate config file content
+    let configScript = `
+      export const options = {
+        scenarios: {
+    `;
+    requests.forEach((request, index) => {
+      const { name } = request.request;
+      configScript += `          ${name.replace(/ /g, '_')}_1: {
+            executor: 'constant-arrival-rate',
+            rate: 10,
+            timeUnit: '1s',
+            duration: '1m',
+            preAllocatedVUs: 10,
+            maxVUs: 20,
+          },\n`;
+    });
+    configScript += `
+        },
+      };
+    `;
+
+    // Save the config file
+    const configFileName = 'config.js';
+    const configFilePath = path.join(__dirname, configFileName);
+    fs.writeFileSync(configFilePath, configScript);
+
+    console.log('Conversion successful.');
+    console.log('Individual request files saved in:', requestsDirPath);
+    console.log('Suite file saved to:', suiteFilePath);
+    console.log('Config file saved to:', configFilePath);
+  } catch (error) {
+    console.error('Error converting Postman Collection to k6 script:', error);
+  }
+}
+
+// Accept Postman Collection JSON file path as a command-line argument
+const postmanFilePath = process.argv[2];
+convertPostmanToK6(postmanFilePath);
