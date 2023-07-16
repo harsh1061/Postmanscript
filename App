@@ -1,0 +1,48 @@
+// app.js
+const express = require('express');
+const app = express();
+const WebSocket = require('ws');
+const fs = require('fs');
+
+// Link your custom mycode.js file
+const mycode = require('./mycode.js');
+
+const port = 3000;
+
+// Create an HTTP server using Express
+const server = app.listen(port, () => {
+  console.log(`Server started on http://localhost:${port}`);
+});
+
+// Create a WebSocket server using the same HTTP server
+const wss = new WebSocket.Server({ server });
+
+// Establish WebSocket connection
+wss.on('connection', (ws) => {
+  // Listen for messages from the client (UI)
+  ws.on('message', (message) => {
+    // Handle the received input data
+    const inputData = JSON.parse(message);
+
+    // Get the individual properties from the inputData object
+    const { harFile, checkbox1, checkbox2, checkbox3, textInput1, textInput2, textInput3 } = inputData;
+
+    // You can save the uploaded HAR file to a temporary location (optional)
+    const tempHarFilePath = './temp/uploadedHarFile.har';
+    fs.writeFileSync(tempHarFilePath, harFile);
+
+    // Trigger your custom function with the input data
+    mycode.customFunction(ws, {
+      harFile: tempHarFilePath,
+      checkbox1,
+      checkbox2,
+      checkbox3,
+      textInput1,
+      textInput2,
+      textInput3,
+    });
+
+    // You can remove the temporary file if needed
+    // fs.unlinkSync(tempHarFilePath);
+  });
+});
